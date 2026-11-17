@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Creeq Consulting</title>
+  <meta name="description" content="Creeq Consulting — Software consulting emerging from the depths.">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Raleway:wght@300;400&display=swap');
+
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0a0a0a;
+      cursor: default;
+    }
+
+    #bg-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+    }
+
+    /* Dark overlay to keep the logo readable */
+    #overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.65) 100%);
+      pointer-events: none;
+    }
+
+    /* Vignette */
+    #vignette {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      box-shadow: inset 0 0 200px rgba(0,0,0,0.9);
+      pointer-events: none;
+    }
+
+    /* Logo container */
+    #logo-container {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 10;
+      text-align: center;
+      opacity: 0;
+      animation: fadeIn 2.5s ease-out 0.5s forwards;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translate(-50%, -48%); }
+      to   { opacity: 1; transform: translate(-50%, -50%); }
+    }
+
+    #logo-link {
+      text-decoration: none;
+      display: inline-block;
+      transition: filter 0.6s ease, transform 0.6s ease;
+    }
+
+    #logo-link:hover {
+      filter: brightness(1.15) drop-shadow(0 0 40px rgba(140, 180, 140, 0.4));
+      transform: scale(1.02);
+    }
+
+    .logo-svg {
+      width: clamp(340px, 64vw, 880px);
+      max-width: 90vw;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+      filter: drop-shadow(0 8px 40px rgba(0, 0, 0, 0.85));
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    /* Initial black cover that fades out when shaders are ready */
+    #fade-cover {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #000000;
+      z-index: 999;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 1.8s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+
+    #fade-cover.ready {
+      opacity: 0;
+    }
+
+    /* Subtle ambient particles overlay (CSS) */
+    .particle {
+      position: fixed;
+      border-radius: 50%;
+      background: rgba(160, 200, 160, 0.15);
+      pointer-events: none;
+      z-index: 3;
+      animation: drift linear infinite;
+    }
+
+    @keyframes drift {
+      0%   { transform: translateY(0) translateX(0); opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { transform: translateY(-100vh) translateX(30px); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="fade-cover"></div>
+  <canvas id="bg-canvas"></canvas>
+  <div id="overlay"></div>
+  <div id="vignette"></div>
+
+  <div id="logo-container">
+    <a id="logo-link" href="mailto:hello@creeq.com" title="Contact Creeq Consulting">
+      <img src="CREEQ-LOGO.svg" alt="Creeq Consulting" class="logo-svg" />
+    </a>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    // ─── Setup ────────────────────────────────────────────────────
+    const canvas = document.getElementById('bg-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.85;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0a110a, 0.055);
+    scene.background = new THREE.Color(0x050905);
+
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 1.5, 4);
+    camera.lookAt(0, 0.3, 0);
+
+    // ─── Mouse tracking ──────────────────────────────────────────
+    const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
+    document.addEventListener('mousemove', (e) => {
+      mouse.tx = (e.clientX / window.innerWidth - 0.5) * 2;
+      mouse.ty = (e.clientY / window.innerHeight - 0.5) * 2;
+    });
+
+    // ─── Procedural water/creek surface ──────────────────────────
+    const creekGeo = new THREE.PlaneGeometry(16, 16, 200, 200);
+    creekGeo.rotateX(-Math.PI / 2);
+
+    const creekMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime:  { value: 0 },
+        uMouse: { value: new THREE.Vector2(0, 0) },
+        uColor1: { value: new THREE.Color(0x102a10) },
+        uColor2: { value: new THREE.Color(0x264a26) },
+        uColor3: { value: new THREE.Color(0x153518) },
+        uFogColor: { value: new THREE.Color(0x050905) },
+        uFogDensity: { value: 0.055 }
+      },
+      vertexShader: `
+        uniform float uTime;
+        uniform vec2 uMouse;
+        varying vec2 vUv;
+        varying float vElevation;
+        varying vec3 vWorldPos;
+
+        // Simplex-ish noise helpers
+        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 permute(vec4 x) { return mod289((x * 34.0 + 1.0) * x); }
+        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+        float snoise(vec3 v) {
+          const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+          const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+          vec3 i  = floor(v + dot(v, C.yyy));
+          vec3 x0 = v - i + dot(i, C.xxx);
+          vec3 g  = step(x0.yzx, x0.xyz);
+          vec3 l  = 1.0 - g;
+          vec3 i1 = min(g.xyz, l.zxy);
+          vec3 i2 = max(g.xyz, l.zxy);
+          vec3 x1 = x0 - i1 + C.xxx;
+          vec3 x2 = x0 - i2 + C.yyy;
+          vec3 x3 = x0 - D.yyy;
+          i = mod289(i);
+          vec4 p = permute(permute(permute(
+            i.z + vec4(0.0, i1.z, i2.z, 1.0))
+            + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+            + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+          float n_ = 0.142857142857;
+          vec3 ns = n_ * D.wyz - D.xzx;
+          vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+          vec4 x_ = floor(j * ns.z);
+          vec4 y_ = floor(j - 7.0 * x_);
+          vec4 x  = x_ * ns.x + ns.yyyy;
+          vec4 y  = y_ * ns.x + ns.yyyy;
+          vec4 h  = 1.0 - abs(x) - abs(y);
+          vec4 b0 = vec4(x.xy, y.xy);
+          vec4 b1 = vec4(x.zw, y.zw);
+          vec4 s0 = floor(b0)*2.0 + 1.0;
+          vec4 s1 = floor(b1)*2.0 + 1.0;
+          vec4 sh = -step(h, vec4(0.0));
+          vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+          vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+          vec3 p0 = vec3(a0.xy, h.x);
+          vec3 p1 = vec3(a0.zw, h.y);
+          vec3 p2 = vec3(a1.xy, h.z);
+          vec3 p3 = vec3(a1.zw, h.w);
+          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+          p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+          vec4 m = max(0.6 - vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)), 0.0);
+          m = m * m;
+          return 42.0 * dot(m*m, vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+        }
+
+        void main() {
+          vUv = uv;
+          vec3 pos = position;
+
+          // Flowing creek - water moves in -Z direction (towards camera)
+          float flow = uTime * 0.15;
+
+          // Multiple octaves of noise for natural water
+          float n1 = snoise(vec3(pos.x * 0.4, pos.z * 0.3 + flow, uTime * 0.08)) * 0.35;
+          float n2 = snoise(vec3(pos.x * 0.9, pos.z * 0.7 + flow * 1.4, uTime * 0.12)) * 0.15;
+          float n3 = snoise(vec3(pos.x * 2.0, pos.z * 1.8 + flow * 2.0, uTime * 0.15)) * 0.06;
+
+          // Subtle mouse-reactive ripple
+          float mouseDist = length(vec2(pos.x - uMouse.x * 3.0, pos.z - 1.0 + uMouse.y * 2.0));
+          float mouseRipple = sin(mouseDist * 3.0 - uTime * 2.0) * 0.04 * smoothstep(4.0, 0.5, mouseDist);
+
+          pos.y += n1 + n2 + n3 + mouseRipple;
+          vElevation = pos.y;
+          vWorldPos = pos;
+
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform vec3 uColor1;
+        uniform vec3 uColor2;
+        uniform vec3 uColor3;
+        uniform vec3 uFogColor;
+        uniform float uFogDensity;
+        varying vec2 vUv;
+        varying float vElevation;
+        varying vec3 vWorldPos;
+
+        void main() {
+          // Mix dark greens based on elevation and position
+          float mixFactor = smoothstep(-0.3, 0.3, vElevation);
+          vec3 color = mix(uColor1, uColor2, mixFactor);
+
+          // Add subtle variation based on position
+          float pattern = sin(vWorldPos.x * 1.5 + uTime * 0.1) * sin(vWorldPos.z * 1.2 + uTime * 0.08);
+          color = mix(color, uColor3, pattern * 0.3 + 0.15);
+
+          // Specular-like highlights on wave crests
+          float highlight = smoothstep(0.05, 0.3, vElevation);
+          color += vec3(0.08, 0.14, 0.08) * highlight;
+
+          // Subtle shimmer
+          float shimmer = sin(vWorldPos.x * 8.0 + uTime * 0.5) * sin(vWorldPos.z * 6.0 + uTime * 0.3);
+          color += vec3(0.01, 0.02, 0.01) * max(shimmer, 0.0);
+
+          // Exponential fog
+          float dist = length(vWorldPos - vec3(0.0, 1.5, 4.0));
+          float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
+          color = mix(color, uFogColor, fogFactor);
+
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `,
+      side: THREE.DoubleSide
+    });
+
+    const creek = new THREE.Mesh(creekGeo, creekMat);
+    creek.position.y = -0.2;
+    scene.add(creek);
+
+    // ─── Rocks / mossy stones along the creek ────────────────────
+    const rockGeo = new THREE.DodecahedronGeometry(1, 1);
+    const rockMat = new THREE.MeshStandardMaterial({
+      color: 0x1a2a1a,
+      roughness: 0.95,
+      metalness: 0.05,
+      flatShading: true
+    });
+
+    const rockPositions = [
+      [-3.5, -0.1, -2, 0.6],  [-2.8, -0.15, 0.5, 0.4],
+      [3.2, -0.1, -1.5, 0.7], [2.5, -0.12, 1, 0.35],
+      [-4, -0.15, 2, 0.5],    [4.2, -0.1, -3, 0.55],
+      [-1.8, -0.2, -4, 0.3],  [1.5, -0.18, -3.5, 0.25],
+      [-3, -0.1, -5, 0.45],   [3.8, -0.12, 3, 0.4],
+      [-5, -0.08, -1, 0.65],  [5, -0.1, 0, 0.5],
+    ];
+
+    rockPositions.forEach(([x, y, z, s]) => {
+      const rock = new THREE.Mesh(rockGeo, rockMat);
+      rock.position.set(x, y, z);
+      rock.scale.set(s, s * 0.5, s);
+      rock.rotation.set(Math.random() * 0.5, Math.random() * Math.PI, Math.random() * 0.3);
+      scene.add(rock);
+    });
+
+    // ─── Floating moss particles ─────────────────────────────────
+    const particleCount = 600;
+    const particleGeo = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const velocities = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+
+    for (let i = 0; i < particleCount; i++) {
+      positions[i * 3]     = (Math.random() - 0.5) * 14;
+      positions[i * 3 + 1] = Math.random() * 4;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 14;
+      velocities[i * 3]     = (Math.random() - 0.5) * 0.002;
+      velocities[i * 3 + 1] = Math.random() * 0.003 + 0.001;
+      velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.002;
+      sizes[i] = Math.random() * 3 + 1;
+    }
+
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    particleGeo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+
+    const particleMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uPixelRatio: { value: renderer.getPixelRatio() }
+      },
+      vertexShader: `
+        attribute float aSize;
+        uniform float uTime;
+        uniform float uPixelRatio;
+        varying float vAlpha;
+
+        void main() {
+          vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+          float dist = -mvPos.z;
+          vAlpha = smoothstep(10.0, 2.0, dist) * 0.4;
+          gl_PointSize = aSize * uPixelRatio * (3.0 / dist);
+          gl_Position = projectionMatrix * mvPos;
+        }
+      `,
+      fragmentShader: `
+        varying float vAlpha;
+        void main() {
+          float d = length(gl_PointCoord - 0.5);
+          if (d > 0.5) discard;
+          float alpha = smoothstep(0.5, 0.1, d) * vAlpha;
+          gl_FragColor = vec4(0.35, 0.55, 0.3, alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    const particles = new THREE.Points(particleGeo, particleMat);
+    scene.add(particles);
+
+    // ─── Lighting ────────────────────────────────────────────────
+    const ambient = new THREE.AmbientLight(0x1a2f1a, 0.7);
+    scene.add(ambient);
+
+    const moonLight = new THREE.DirectionalLight(0x3a5a4a, 0.6);
+    moonLight.position.set(-3, 8, -5);
+    scene.add(moonLight);
+
+    const faintGlow = new THREE.PointLight(0x2a4a2a, 0.6, 15);
+    faintGlow.position.set(0, 2, 0);
+    scene.add(faintGlow);
+
+    // ─── Repeating Square Pattern Overlay (Fragment Shader) ──────
+    const squareOverlayGeo = new THREE.PlaneGeometry(2, 2);
+    const squareOverlayMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+        uMouse: { value: new THREE.Vector2(0, 0) }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform vec2 uResolution;
+        uniform vec2 uMouse;
+        varying vec2 vUv;
+
+        void main() {
+          vec2 st = gl_FragCoord.xy;
+          
+          // Grid dimensions: period 10px, gap 2px, squares 8px
+          float periodPx = 10.0;
+          float gapWidth = 2.0;
+          float squareWidth = 8.0;
+          float halfGapPx = gapWidth * 0.5; // 1.0px
+
+          vec2 gridCoord = st / periodPx;
+          vec2 cellUv = fract(gridCoord);
+          vec2 cellId = floor(gridCoord);
+
+          // Distance to cell boundaries in pixels
+          vec2 distToCellEdgePx = min(cellUv, 1.0 - cellUv) * periodPx;
+
+          // Gap channels between the black squares (anti-aliased 2px gap)
+          float gapX = 1.0 - smoothstep(halfGapPx - 0.5, halfGapPx + 0.5, distToCellEdgePx.x);
+          float gapY = 1.0 - smoothstep(halfGapPx - 0.5, halfGapPx + 0.5, distToCellEdgePx.y);
+          float gap = max(gapX, gapY);
+
+          // Intersection accent where horizontal and vertical gaps meet
+          float intersection = gapX * gapY;
+
+          // Gentle ambient wave traveling through the grid (scaled for 10px period)
+          float wave = sin((cellId.x + cellId.y) * 0.12 - uTime * 1.2) * 0.5 + 0.5;
+
+          // Interactive mouse aura
+          vec2 mouseNorm = vec2(uMouse.x * 0.5 + 0.5, -uMouse.y * 0.5 + 0.5);
+          vec2 mousePos = mouseNorm * uResolution;
+          float mouseDistPx = length(st - mousePos);
+          float mouseGlow = smoothstep(260.0, 0.0, mouseDistPx) * 0.5;
+
+          // Base moss-green palette
+          vec3 baseGreen = vec3(0.18, 0.44, 0.22);
+          vec3 glowGreen = vec3(0.35, 0.70, 0.42);
+          vec3 gapColor = mix(baseGreen, glowGreen, wave * 0.35 + mouseGlow);
+
+          // Pattern intensity: 2px gap lines with intersection nodes
+          float gapFill = gap * 0.55;
+          float intersectionGlow = intersection * 0.25;
+          float pattern = (gapFill + intersectionGlow) * (0.75 + 0.25 * wave + mouseGlow * 0.85);
+
+          // Soft vignette falloff towards screen edges
+          vec2 normUv = st / uResolution;
+          float aspect = uResolution.x / uResolution.y;
+          float vig = smoothstep(1.35, 0.35, length((normUv - 0.5) * vec2(aspect, 1.0)));
+          pattern *= vig;
+
+          // Center attenuation scaled for 2x logo size
+          float centerDist = length(normUv - 0.5);
+          float centerFade = smoothstep(0.18, 0.52, centerDist);
+          pattern = mix(pattern * 0.45, pattern, centerFade);
+
+          gl_FragColor = vec4(gapColor * pattern, pattern);
+        }
+      `,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    const squareOverlayMesh = new THREE.Mesh(squareOverlayGeo, squareOverlayMat);
+    const squareOverlayScene = new THREE.Scene();
+    squareOverlayScene.add(squareOverlayMesh);
+    const squareOverlayCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+    // ─── Background Blur Render Targets & Shader ─────────────────
+    const drawingBufferSize = new THREE.Vector2();
+    renderer.getDrawingBufferSize(drawingBufferSize);
+
+    const rtParams = {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter
+    };
+
+    const bgRenderTarget = new THREE.WebGLRenderTarget(drawingBufferSize.x, drawingBufferSize.y, rtParams);
+    const blurRenderTarget = new THREE.WebGLRenderTarget(drawingBufferSize.x, drawingBufferSize.y, rtParams);
+
+    const blurMat = new THREE.ShaderMaterial({
+      uniforms: {
+        tDiffuse: { value: null },
+        uResolution: { value: new THREE.Vector2(drawingBufferSize.x, drawingBufferSize.y) },
+        uDirection: { value: new THREE.Vector2(1.0, 0.0) },
+        uRadius: { value: 4.5 }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform vec2 uResolution;
+        uniform vec2 uDirection;
+        uniform float uRadius;
+        varying vec2 vUv;
+
+        void main() {
+          vec2 texel = (uDirection * uRadius) / uResolution;
+          vec4 sum = vec4(0.0);
+
+          // 9-tap Gaussian blur filter
+          sum += texture2D(tDiffuse, vUv - texel * 4.0) * 0.0510;
+          sum += texture2D(tDiffuse, vUv - texel * 3.0) * 0.0918;
+          sum += texture2D(tDiffuse, vUv - texel * 2.0) * 0.1225;
+          sum += texture2D(tDiffuse, vUv - texel * 1.0) * 0.1531;
+          sum += texture2D(tDiffuse, vUv)                * 0.1632;
+          sum += texture2D(tDiffuse, vUv + texel * 1.0) * 0.1531;
+          sum += texture2D(tDiffuse, vUv + texel * 2.0) * 0.1225;
+          sum += texture2D(tDiffuse, vUv + texel * 3.0) * 0.0918;
+          sum += texture2D(tDiffuse, vUv + texel * 4.0) * 0.0510;
+
+          gl_FragColor = sum;
+        }
+      `,
+      depthTest: false,
+      depthWrite: false
+    });
+
+    const blurQuadGeo = new THREE.PlaneGeometry(2, 2);
+    const blurQuadMesh = new THREE.Mesh(blurQuadGeo, blurMat);
+    const blurScene = new THREE.Scene();
+    blurScene.add(blurQuadMesh);
+    const blurCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+    renderer.autoClear = false;
+
+    // ─── Animation loop ──────────────────────────────────────────
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const elapsed = clock.getElapsedTime();
+
+      // Smooth mouse follow
+      mouse.x += (mouse.tx - mouse.x) * 0.03;
+      mouse.y += (mouse.ty - mouse.y) * 0.03;
+
+      // Update shader uniforms
+      creekMat.uniforms.uTime.value = elapsed;
+      creekMat.uniforms.uMouse.value.set(mouse.x, mouse.y);
+      particleMat.uniforms.uTime.value = elapsed;
+      squareOverlayMat.uniforms.uTime.value = elapsed;
+      squareOverlayMat.uniforms.uMouse.value.set(mouse.x, mouse.y);
+
+      // Subtle camera sway
+      camera.position.x = mouse.x * 0.3;
+      camera.position.y = 1.5 + mouse.y * -0.15 + Math.sin(elapsed * 0.2) * 0.05;
+      camera.lookAt(mouse.x * 0.1, 0.3, 0);
+
+      // Animate particles
+      const posAttr = particleGeo.attributes.position;
+      for (let i = 0; i < particleCount; i++) {
+        posAttr.array[i * 3]     += velocities[i * 3] + Math.sin(elapsed * 0.5 + i) * 0.0003;
+        posAttr.array[i * 3 + 1] += velocities[i * 3 + 1];
+        posAttr.array[i * 3 + 2] += velocities[i * 3 + 2];
+
+        // Reset particles that drift too high
+        if (posAttr.array[i * 3 + 1] > 4) {
+          posAttr.array[i * 3]     = (Math.random() - 0.5) * 14;
+          posAttr.array[i * 3 + 1] = -0.5;
+          posAttr.array[i * 3 + 2] = (Math.random() - 0.5) * 14;
+        }
+      }
+      posAttr.needsUpdate = true;
+
+      // Breathing glow
+      faintGlow.intensity = 0.4 + Math.sin(elapsed * 0.3) * 0.15;
+
+      // 1. Render 3D background scene to bgRenderTarget
+      renderer.setRenderTarget(bgRenderTarget);
+      renderer.clear();
+      renderer.render(scene, camera);
+
+      // 2. Horizontal blur: bgRenderTarget -> blurRenderTarget
+      renderer.setRenderTarget(blurRenderTarget);
+      renderer.clear();
+      blurMat.uniforms.tDiffuse.value = bgRenderTarget.texture;
+      blurMat.uniforms.uDirection.value.set(1.0, 0.0);
+      renderer.render(blurScene, blurCamera);
+
+      // 3. Vertical blur: blurRenderTarget -> Canvas (screen)
+      renderer.setRenderTarget(null);
+      renderer.clear();
+      blurMat.uniforms.tDiffuse.value = blurRenderTarget.texture;
+      blurMat.uniforms.uDirection.value.set(0.0, 1.0);
+      renderer.render(blurScene, blurCamera);
+
+      // 4. Render repeating square mesh overlay on top of blurred background
+      renderer.render(squareOverlayScene, squareOverlayCamera);
+
+      // Fade out initial black cover once shaders have rendered
+      if (!shadersReady) {
+        shadersReady = true;
+        requestAnimationFrame(() => {
+          if (fadeCover) {
+            fadeCover.classList.add('ready');
+            setTimeout(() => {
+              if (fadeCover.parentNode) fadeCover.remove();
+            }, 2000);
+          }
+        });
+      }
+    }
+
+    // Pre-compile shaders
+    renderer.compile(scene, camera);
+    renderer.compile(blurScene, blurCamera);
+    renderer.compile(squareOverlayScene, squareOverlayCamera);
+
+    let shadersReady = false;
+    const fadeCover = document.getElementById('fade-cover');
+
+    animate();
+
+    // ─── Resize ──────────────────────────────────────────────────
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      renderer.getDrawingBufferSize(drawingBufferSize);
+      bgRenderTarget.setSize(drawingBufferSize.x, drawingBufferSize.y);
+      blurRenderTarget.setSize(drawingBufferSize.x, drawingBufferSize.y);
+      blurMat.uniforms.uResolution.value.copy(drawingBufferSize);
+
+      particleMat.uniforms.uPixelRatio.value = renderer.getPixelRatio();
+      squareOverlayMat.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+    });
+
+    // ─── Floating CSS particles (ambient) ────────────────────────
+    for (let i = 0; i < 15; i++) {
+      const p = document.createElement('div');
+      p.className = 'particle';
+      const size = Math.random() * 3 + 1;
+      p.style.width = size + 'px';
+      p.style.height = size + 'px';
+      p.style.left = Math.random() * 100 + '%';
+      p.style.top = (100 + Math.random() * 20) + '%';
+      p.style.animationDuration = (15 + Math.random() * 20) + 's';
+      p.style.animationDelay = Math.random() * 15 + 's';
+      document.body.appendChild(p);
+    }
+  </script>
+
+</body>
+</html>
